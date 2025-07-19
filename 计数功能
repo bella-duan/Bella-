@@ -1,1 +1,119 @@
+import mysql.connector
+from mysql.connector import Error
+from datetime import datetime
 
+class UserActivityCounter:
+    def __init__(self, host, user, password, database):
+        try:
+            self.connection = mysql.connector.connect(
+                host=host,
+                user=user,
+                password=password,
+                database=database
+            )
+            self.create_table()
+        except Error as e:
+            print(f"Error connecting to MySQL: {e}")
+            raise
+
+    def create_table(self):
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS user_activity (
+            user_name VARCHAR(255) PRIMARY KEY,
+            visit_count INT DEFAULT 0,
+            question_count INT DEFAULT 0,
+            last_visit_time DATETIME,
+            last_visit_duration INT DEFAULT 0  -- 单位：秒
+        );
+        """
+        with self.connection.cursor() as cursor:
+            cursor.execute(create_table_query)
+        self.connection.commit()
+
+    def get_user_activity(self, user_name):
+        query = """
+            SELECT visit_count, question_count, last_visit_time, last_visit_duration
+            FROM user_activity WHERE user_name=%s
+        """
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, (user_name,))
+            result = cursor.fetchone()
+            if result:
+                return {
+                    "visit_count": result[0],
+                    "question_count": result[1],
+                    "last_visit_time": result[2],
+                    "last_visit_duration": result[3]
+                }
+            else:
+                return {
+                    "visit_count": 0,
+                    "question_count": 0,
+                    "last_visit_time": None,
+                    "last_visit_duration": 0
+                }
+
+    def record_visit(self, user_name, duration_seconds):
+        now = datetime.now()
+        activity = self.get_user_activity(user_name)
+        if activity['visit_count'] == 0:
+            # 新用户
+            query = """
+                INSERT INTO user_activity (user_name, visit_count, question_count, last_visit_time, last_visit_duration)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            values = (user_name, 1, 0, now, duration_seconds)
+        else:
+            query = """
+                UPDATE user_activity
+                SET visit_count = visit_count + 1,
+                    last_visit_time = %s,
+                    last_visit_duration = %s
+                WHERE user_name = %s
+            """
+            values = (now, duration_seconds, user_name)
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, values)
+        self.connection.commit()
+
+    def record_question(self, user_name):
+        activity = self.get_user_activity(user_name)
+        if activity['visit_count'] == 0:
+            # 新用户，先插入用户
+            self.record_visit(user_name, 0)
+        query = """
+            UPDATE user_activity
+            SET question_count = question_count + 1
+            WHERE user_name = %s
+        """
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, (user_name,))
+        self.connection.commit()
+
+    def close(self):
+        if self.connection.is_connected():
+            self.connection.close()
+
+# 示例用法
+if __name__ == "__main__":
+    db = UserActivityCounter(
+        host='8.159.131.34',
+        user='mysql.infoschema',
+        password='Jingaizhe1205$',
+        database='bella_know_a_company'
+    )
+
+    user_name = 'bella'
+    # 模拟一次访问，访问时长120秒
+    db.record_visit(user_name, duration_seconds=120)
+    # 模拟提问3次
+    db.record_question(user_name)
+    db.record_question(user_name)
+    db.record_question(user_name)
+    # 查询记录
+    activity = db.get_user_activity(user_name)
+    print(f"用户 {user_name} 访问次数: {activity['visit_count']}")
+    print(f"用户 {user_name} 提问次数: {activity['question_count']}")
+    print(f"最后访问时间: {activity['last_visit_time']}")
+    print(f"最后访问时长: {activity['last_visit_duration']} 秒")
+    db.close()
