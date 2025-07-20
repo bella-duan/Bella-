@@ -1,1 +1,51 @@
+import uuid
+from flask import Flask, request, jsonify
 
+app = Flask(__name__)
+
+# ====== 支付平台接口模拟区 ======
+def create_payment_link(order_id, amount, description):
+    """
+    生成支付链接（假设对接第三方支付平台，可以替换为实际接口）
+    """
+    # 实际项目中在这里调用微信/支付宝/Stripe等SDK或API
+    pay_url = f"https://pay.example.com/pay?order_id={order_id}&amount={amount}"
+    return pay_url
+
+def verify_payment_notify(data):
+    """
+    验证支付通知合法性和真实性（建议结合平台签名校验）
+    """
+    # 实际项目中应严格校验签名和参数
+    # 这里只做简单演示
+    return data.get("paid") == "true"
+
+# ====== 业务接口区 ======
+
+@app.route('/pay', methods=['POST'])
+def pay():
+    # 前端请求时传递商品描述和金额
+    req_data = request.json
+    description = req_data.get("description", "测试商品")
+    amount = req_data.get("amount", 1)  # 单位：分
+    order_id = str(uuid.uuid4()).replace("-", "")
+    pay_url = create_payment_link(order_id, amount, description)
+    return jsonify({
+        "order_id": order_id,
+        "pay_url": pay_url
+    })
+
+@app.route('/pay_notify', methods=['POST'])
+def pay_notify():
+    # 支付平台回调此接口
+    notify_data = request.json
+    # 检查签名和支付结果
+    if verify_payment_notify(notify_data):
+        order_id = notify_data.get("order_id")
+        # TODO: 更新订单状态、发货、记录日志等
+        return jsonify({"code": "SUCCESS", "msg": "支付成功"})
+    else:
+        return jsonify({"code": "FAIL", "msg": "支付失败或通知非法"})
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=8000)
